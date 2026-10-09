@@ -1,0 +1,6 @@
+{
+  "name": "OpenAI Model Benchmark & API Suite",
+  "description": "Generic OpenAI uyumlu model tarayıcısı, çoklu model karşılaştırma ve 10 farklı API endpointi için performans analiz ve grafiksel raporlama platformu.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
