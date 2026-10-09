@@ -2,9 +2,9 @@ import React, { useState, useEffect } from 'react';
 import type { ApiConfig, BenchmarkRecord, ModelItem } from './types';
 import { Header } from './components/Header';
 import { ConfigModal } from './components/ConfigModal';
-import { ModelScanner } from './components/ModelScanner';
+import { BenchmarkSuiteView } from './components/BenchmarkSuiteView';
+import { ModelGuideView } from './components/ModelGuideView';
 import { EndpointTester } from './components/EndpointTester';
-import { CompareView } from './components/CompareView';
 import { ReportingDashboard } from './components/ReportingDashboard';
 import { scanModels } from './services/apiService';
 
@@ -34,6 +34,8 @@ const INITIAL_SEED_RECORDS: BenchmarkRecord[] = [
     timestamp: Date.now() - 1000 * 60 * 18,
     modelId: 'gpt-4o',
     endpoint: '/chat/completions',
+    category: 'document_analysis',
+    categoryScore: 94,
     status: 'success',
     httpStatus: 200,
     latencyMs: 720,
@@ -43,14 +45,16 @@ const INITIAL_SEED_RECORDS: BenchmarkRecord[] = [
     totalTokens: 258,
     tokensPerSecond: 82.4,
     requestPayload: { model: 'gpt-4o', max_tokens: 300 },
-    responsePayload: { choices: [{ message: { content: 'Kuantum bilgisayarlar süperpozisyon ve dolanıklık ilkelerini kullanır...' } }] },
-    outputPreview: 'Kuantum bilgisayarlar süperpozisyon ve dolanıklık ilkelerini kullanır...',
+    responsePayload: { choices: [{ message: { content: 'SLA Madde 4 analizi: %98.40 için %25 hizmet kredisi iade edilir...' } }] },
+    outputPreview: 'SLA Madde 4 analizi: %98.40 için %25 hizmet kredisi iade edilir...',
   },
   {
     id: 'rec_seed_2',
     timestamp: Date.now() - 1000 * 60 * 15,
     modelId: 'gpt-4o-mini',
     endpoint: '/chat/completions',
+    category: 'coding',
+    categoryScore: 91,
     status: 'success',
     httpStatus: 200,
     latencyMs: 380,
@@ -60,8 +64,8 @@ const INITIAL_SEED_RECORDS: BenchmarkRecord[] = [
     totalTokens: 243,
     tokensPerSecond: 135.2,
     requestPayload: { model: 'gpt-4o-mini', max_tokens: 300 },
-    responsePayload: { choices: [{ message: { content: '1. Kübitler aynı anda 0 ve 1 olabilir. 2. Dolanıklık ile paralel işlem yapılır.' } }] },
-    outputPreview: '1. Kübitler aynı anda 0 ve 1 olabilir. 2. Dolanıklık ile paralel işlem yapılır.',
+    responsePayload: { choices: [{ message: { content: 'class ConcurrentTaskQueue<T> { ... } Concurrency ve retry başarıyla yazıldı.' } }] },
+    outputPreview: 'class ConcurrentTaskQueue<T> { ... } Concurrency ve retry başarıyla yazıldı.',
   },
   {
     id: 'rec_seed_3',
@@ -93,7 +97,7 @@ const INITIAL_SEED_RECORDS: BenchmarkRecord[] = [
 ];
 
 export default function App() {
-  const [activeTab, setActiveTab] = useState<'scanner' | 'endpoints' | 'compare' | 'reports'>('scanner');
+  const [activeTab, setActiveTab] = useState<'benchmark' | 'guide' | 'endpoints' | 'reports'>('benchmark');
   const [isConfigOpen, setIsConfigOpen] = useState(false);
 
   // Load saved config or default
@@ -286,18 +290,25 @@ export default function App() {
 
       {/* Main Viewport Container */}
       <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-6">
-        {activeTab === 'scanner' && (
-          <ModelScanner
-            models={models}
-            isScanning={isScanning}
-            scanError={scanError}
-            onScan={handleScanModels}
+        {activeTab === 'benchmark' && (
+          <BenchmarkSuiteView
+            apiConfig={apiConfig}
+            scannedModels={models}
             selectedModelIds={selectedModelIds}
-            onToggleSelectModel={handleToggleSelectModel}
-            onSelectAllVisible={handleSelectAllVisible}
-            onClearSelection={handleClearSelection}
-            onQuickTest={handleQuickTest}
-            onGoToCompare={() => setActiveTab('compare')}
+            onBenchmarkCompleted={handleBenchmarkCompleted}
+            onGoToModelGuide={() => setActiveTab('guide')}
+          />
+        )}
+
+        {activeTab === 'guide' && (
+          <ModelGuideView
+            scannedModels={models}
+            onSelectModelForBenchmark={(modelId) => {
+              if (!selectedModelIds.includes(modelId)) {
+                setSelectedModelIds([modelId, ...selectedModelIds.slice(0, 2)]);
+              }
+            }}
+            onGoToBenchmark={() => setActiveTab('benchmark')}
           />
         )}
 
@@ -307,16 +318,6 @@ export default function App() {
             models={models}
             defaultSelectedModel={selectedModelForTest}
             onBenchmarkCompleted={handleBenchmarkCompleted}
-          />
-        )}
-
-        {activeTab === 'compare' && (
-          <CompareView
-            apiConfig={apiConfig}
-            scannedModels={models}
-            selectedModelIds={selectedModelIds}
-            onBenchmarkCompleted={handleBenchmarkCompleted}
-            onGoToReports={() => setActiveTab('reports')}
           />
         )}
 

@@ -3,8 +3,8 @@ import { SlidersHorizontal, ShieldCheck, Zap } from 'lucide-react';
 import type { ApiConfig } from '../types';
 
 interface HeaderProps {
-  activeTab: 'scanner' | 'endpoints' | 'compare' | 'reports';
-  setActiveTab: (tab: 'scanner' | 'endpoints' | 'compare' | 'reports') => void;
+  activeTab: 'benchmark' | 'guide' | 'endpoints' | 'reports';
+  setActiveTab: (tab: 'benchmark' | 'guide' | 'endpoints' | 'reports') => void;
   apiConfig: ApiConfig;
   onOpenConfig: () => void;
   modelsCount: number;
@@ -35,14 +35,25 @@ export const Header: React.FC<HeaderProps> = ({
         {/* Zone 2: Navigation Links */}
         <nav className="hidden md:flex items-center gap-6 text-sm font-medium">
           <button
-            onClick={() => setActiveTab('scanner')}
+            onClick={() => setActiveTab('benchmark')}
             className={`whitespace-nowrap transition-colors py-1 ${
-              activeTab === 'scanner'
+              activeTab === 'benchmark'
                 ? 'text-emerald-400 border-b-2 border-emerald-400 font-semibold'
                 : 'text-slate-400 hover:text-slate-200'
             }`}
           >
-            Modeller & Tarayıcı {modelsCount > 0 && <span className="ml-1 text-xs opacity-75 font-mono">({modelsCount})</span>}
+            Benchmark Laboratuvarı (Döküman & Kod)
+          </button>
+
+          <button
+            onClick={() => setActiveTab('guide')}
+            className={`whitespace-nowrap transition-colors py-1 ${
+              activeTab === 'guide'
+                ? 'text-emerald-400 border-b-2 border-emerald-400 font-semibold'
+                : 'text-slate-400 hover:text-slate-200'
+            }`}
+          >
+            Model Rehberi & Tavsiyeler
           </button>
 
           <button
@@ -53,18 +64,7 @@ export const Header: React.FC<HeaderProps> = ({
                 : 'text-slate-400 hover:text-slate-200'
             }`}
           >
-            Endpoint Testi (10 Uç Nokta)
-          </button>
-
-          <button
-            onClick={() => setActiveTab('compare')}
-            className={`whitespace-nowrap transition-colors py-1 ${
-              activeTab === 'compare'
-                ? 'text-emerald-400 border-b-2 border-emerald-400 font-semibold'
-                : 'text-slate-400 hover:text-slate-200'
-            }`}
-          >
-            Karşılaştırmalı Analiz
+            10 Uç Nokta Testi
           </button>
 
           <button
@@ -112,22 +112,22 @@ export const Header: React.FC<HeaderProps> = ({
       {/* Mobile nav row */}
       <div className="md:hidden flex items-center justify-around border-t border-slate-800/80 bg-slate-950 px-2 py-2 text-xs">
         <button
-          onClick={() => setActiveTab('scanner')}
-          className={`px-2 py-1 rounded ${activeTab === 'scanner' ? 'text-emerald-400 font-medium' : 'text-slate-400'}`}
+          onClick={() => setActiveTab('benchmark')}
+          className={`px-2 py-1 rounded ${activeTab === 'benchmark' ? 'text-emerald-400 font-medium' : 'text-slate-400'}`}
         >
-          Tarayıcı
+          Benchmark
+        </button>
+        <button
+          onClick={() => setActiveTab('guide')}
+          className={`px-2 py-1 rounded ${activeTab === 'guide' ? 'text-emerald-400 font-medium' : 'text-slate-400'}`}
+        >
+          Rehber
         </button>
         <button
           onClick={() => setActiveTab('endpoints')}
           className={`px-2 py-1 rounded ${activeTab === 'endpoints' ? 'text-emerald-400 font-medium' : 'text-slate-400'}`}
         >
           Endpointler
-        </button>
-        <button
-          onClick={() => setActiveTab('compare')}
-          className={`px-2 py-1 rounded ${activeTab === 'compare' ? 'text-emerald-400 font-medium' : 'text-slate-400'}`}
-        >
-          Karşılaştır
         </button>
         <button
           onClick={() => setActiveTab('reports')}

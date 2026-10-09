@@ -10,11 +10,19 @@ export type EndpointType =
   | '/score'
   | '/rerank';
 
+export type BenchmarkCategory =
+  | 'document_analysis'
+  | 'coding'
+  | 'reasoning'
+  | 'speed'
+  | 'json_instruction'
+  | 'turkish_language';
+
 export interface ApiKeyItem {
   id: string;
   name: string;
   key: string;
-  baseUrl?: string; // Optional custom base URL for this specific key
+  baseUrl?: string;
   isEnabled: boolean;
   successCount?: number;
   failCount?: number;
@@ -49,10 +57,12 @@ export interface BenchmarkRecord {
   timestamp: number;
   modelId: string;
   endpoint: EndpointType;
+  category?: BenchmarkCategory;
+  categoryScore?: number; // 0 - 100
   status: 'success' | 'error';
   httpStatus?: number;
   latencyMs: number;
-  ttftMs?: number; // Time to first token
+  ttftMs?: number;
   promptTokens?: number;
   completionTokens?: number;
   totalTokens?: number;
@@ -83,4 +93,55 @@ export interface PresetProvider {
   placeholderKey: string;
   description: string;
   supportsStreaming: boolean;
+}
+
+export interface BenchmarkTestDefinition {
+  id: string;
+  name: string;
+  category: BenchmarkCategory;
+  categoryName: string;
+  description: string;
+  importance: 'Kritik (Ana Konu)' | 'Önemli' | 'Standart';
+  systemPrompt: string;
+  userPrompt: string;
+  maxTokens: number;
+  temperature: number;
+  evaluationCriteria: string[];
+  expectedKeywords?: string[];
+  requiresJson?: boolean;
+}
+
+export interface ModelEvaluationProfile {
+  modelId: string;
+  overallScore: number;
+  categoryScores: Record<BenchmarkCategory, number>;
+  avgLatencyMs: number;
+  avgTokensPerSec: number;
+  topCapability: string;
+  verdictTag: string; // e.g., 'Döküman Şampiyonu', 'Kodlama Lideri', 'Hız & Üretim Lideri'
+  detailedAdvice: string;
+  whereToUse: string;
+  whereNotToUse: string;
+  testCount: number;
+}
+
+export interface ModelGuideProfile {
+  idPattern: string;
+  displayName: string;
+  provider: string;
+  contextWindow: string;
+  codingRating: number; // 1-5
+  documentRating: number; // 1-5
+  speedRating: number; // 1-5
+  costTier: 'Ücretsiz / Yerel' | 'Düşük' | 'Orta' | 'Yüksek';
+  bestFor: string;
+  strengths: string[];
+  weaknesses: string[];
+  whereToUse: string;
+  whereNotToUse: string;
+  recommendedParams: {
+    temperature: number;
+    maxTokens: number;
+    systemTip: string;
+  };
 }
