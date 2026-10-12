@@ -1,11 +1,12 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import type { ApiConfig, BenchmarkRecord, ModelItem } from './types';
-import { Header } from './components/Header';
+import { Header, type NavigationTab } from './components/Header';
 import { ConfigModal } from './components/ConfigModal';
 import { BenchmarkSuiteView } from './components/BenchmarkSuiteView';
 import { ModelGuideView } from './components/ModelGuideView';
 import { EndpointTester } from './components/EndpointTester';
 import { ReportingDashboard } from './components/ReportingDashboard';
+import { SpeedRadarView } from './components/SpeedRadarView';
 import { scanModels } from './services/apiService';
 
 const DEFAULT_CONFIG: ApiConfig = {
@@ -28,7 +29,7 @@ const DEFAULT_CONFIG: ApiConfig = {
 };
 
 export default function App() {
-  const [activeTab, setActiveTab] = useState<'benchmark' | 'guide' | 'endpoints' | 'reports'>('benchmark');
+  const [activeTab, setActiveTab] = useState<NavigationTab>('benchmark');
   const [isConfigOpen, setIsConfigOpen] = useState(false);
 
   // Load saved config or default
@@ -222,14 +223,64 @@ export default function App() {
     }
   };
 
-  const handleBenchmarkCompleted = (record: BenchmarkRecord) => {
+  const handleBenchmarkCompleted = useCallback((record: BenchmarkRecord) => {
     setRecords((prev) => [record, ...prev]);
-  };
+  }, []);
 
-  const handleClearHistory = () => {
+  const handleClearHistory = useCallback(() => {
     setRecords([]);
     localStorage.removeItem('openai_suite_benchmarks');
-  };
+  }, []);
+
+  const handleRunningStateChange = useCallback(
+    (isRunning: boolean, progressPercent: number, testName: string, modelName: string) => {
+      setBenchmarkRunningInfo((prev) => {
+        if (
+          prev.isRunning === isRunning &&
+          prev.progressPercent === progressPercent &&
+          prev.testName === testName &&
+          prev.modelName === modelName
+        ) {
+          return prev;
+        }
+        return { isRunning, progressPercent, testName, modelName };
+      });
+    },
+    []
+  );
+
+  const handleUpdateApiConfig = useCallback(
+    (newCfg: ApiConfig) => {
+      setApiConfig(newCfg);
+      handleScanModelsWithConfig(newCfg);
+    },
+    [handleScanModelsWithConfig]
+  );
+
+  const handleSelectModelForBenchmark = useCallback((modelId: string) => {
+    setSelectedModelIds((prev) => {
+      if (!prev.includes(modelId)) {
+        return [modelId, ...prev.slice(0, 2)];
+      }
+      return prev;
+    });
+  }, []);
+
+  const handleGoToBenchmark = useCallback(() => {
+    setActiveTab('benchmark');
+  }, []);
+
+  const handleGoToGuide = useCallback(() => {
+    setActiveTab('guide');
+  }, []);
+
+  const handleOpenConfig = useCallback(() => {
+    setIsConfigOpen(true);
+  }, []);
+
+  const handleCloseConfig = useCallback(() => {
+    setIsConfigOpen(false);
+  }, []);
 
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col font-sans selection:bg-emerald-500/30 selection:text-emerald-200">
@@ -238,7 +289,7 @@ export default function App() {
         activeTab={activeTab}
         setActiveTab={setActiveTab}
         apiConfig={apiConfig}
-        onOpenConfig={() => setIsConfigOpen(true)}
+        onOpenConfig={handleOpenConfig}
         modelsCount={models.length}
         testCount={records.length}
         benchmarkRunningInfo={benchmarkRunningInfo}
@@ -252,24 +303,25 @@ export default function App() {
             scannedModels={models}
             selectedModelIds={selectedModelIds}
             onBenchmarkCompleted={handleBenchmarkCompleted}
-            onGoToModelGuide={() => setActiveTab('guide')}
+            onGoToModelGuide={handleGoToGuide}
             onTriggerScan={handleScanModels}
             isScanning={isScanning}
             scanError={scanError}
-            onOpenConfig={() => setIsConfigOpen(true)}
+            onOpenConfig={handleOpenConfig}
             onUpdateSelectedModels={setSelectedModelIds}
-            onUpdateApiConfig={(newCfg) => {
-              setApiConfig(newCfg);
-              handleScanModelsWithConfig(newCfg);
-            }}
-            onRunningStateChange={(isRunning, progressPercent, testName, modelName) => {
-              setBenchmarkRunningInfo({
-                isRunning,
-                progressPercent,
-                testName,
-                modelName,
-              });
-            }}
+            onUpdateApiConfig={handleUpdateApiConfig}
+            onRunningStateChange={handleRunningStateChange}
+          />
+        </div>
+
+        <div className={activeTab === 'ping' ? 'block' : 'hidden'}>
+          <SpeedRadarView
+            apiConfig={apiConfig}
+            scannedModels={models}
+            onTriggerScan={handleScanModels}
+            isScanning={isScanning}
+            onOpenConfig={handleOpenConfig}
+            onBenchmarkRecordCreated={handleBenchmarkCompleted}
           />
         </div>
 
@@ -277,15 +329,11 @@ export default function App() {
           <ModelGuideView
             scannedModels={models}
             records={records}
-            onSelectModelForBenchmark={(modelId) => {
-              if (!selectedModelIds.includes(modelId)) {
-                setSelectedModelIds([modelId, ...selectedModelIds.slice(0, 2)]);
-              }
-            }}
-            onGoToBenchmark={() => setActiveTab('benchmark')}
+            onSelectModelForBenchmark={handleSelectModelForBenchmark}
+            onGoToBenchmark={handleGoToBenchmark}
             onTriggerScan={handleScanModels}
             isScanning={isScanning}
-            onOpenConfig={() => setIsConfigOpen(true)}
+            onOpenConfig={handleOpenConfig}
           />
         </div>
 

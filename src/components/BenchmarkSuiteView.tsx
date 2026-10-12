@@ -25,6 +25,9 @@ import {
   EyeOff,
   Server,
   Terminal,
+  Trash2,
+  Copy,
+  Clock,
 } from 'lucide-react';
 import type {
   ApiConfig,
@@ -103,6 +106,63 @@ export const BenchmarkSuiteView: React.FC<BenchmarkSuiteViewProps> = ({
   const [currentCandidateName, setCurrentCandidateName] = useState('');
   const [failoverNotification, setFailoverNotification] = useState<string | null>(null);
   const [progressPercent, setProgressPercent] = useState(0);
+  const [activeStepDescription, setActiveStepDescription] = useState<string>('');
+  const [elapsedRequestSec, setElapsedRequestSec] = useState<number>(0);
+  const [debugLogs, setDebugLogs] = useState<
+    Array<{
+      id: string;
+      time: string;
+      level: 'DEBUG' | 'INFO' | 'WAIT' | 'SUCCESS' | 'WARN' | 'ERROR';
+      message: string;
+    }>
+  >([]);
+  const [isLogTerminalOpen, setIsLogTerminalOpen] = useState(true);
+  const [logFilter, setLogFilter] = useState<'all' | 'debug' | 'error'>('all');
+  const [copiedLogs, setCopiedLogs] = useState(false);
+  const terminalEndRef = React.useRef<HTMLDivElement>(null);
+
+  // Live timer for active HTTP request in flight
+  useEffect(() => {
+    let timer: any;
+    if (isRunning) {
+      timer = setInterval(() => {
+        setElapsedRequestSec((s) => +(s + 0.1).toFixed(1));
+      }, 100);
+    } else {
+      setElapsedRequestSec(0);
+    }
+    return () => clearInterval(timer);
+  }, [isRunning]);
+
+  // Auto-scroll debug log terminal when new entries arrive
+  useEffect(() => {
+    if (isLogTerminalOpen && terminalEndRef.current) {
+      terminalEndRef.current.scrollIntoView({ behavior: 'smooth' });
+    }
+  }, [debugLogs, isLogTerminalOpen]);
+
+  const addDebugLog = (
+    level: 'DEBUG' | 'INFO' | 'WAIT' | 'SUCCESS' | 'WARN' | 'ERROR',
+    message: string
+  ) => {
+    const d = new Date();
+    const time = `${d.getHours().toString().padStart(2, '0')}:${d
+      .getMinutes()
+      .toString()
+      .padStart(2, '0')}:${d.getSeconds().toString().padStart(2, '0')}.${d
+      .getMilliseconds()
+      .toString()
+      .padStart(3, '0')}`;
+    setDebugLogs((prev) => [
+      ...prev.slice(-300),
+      {
+        id: 'log_' + Math.random().toString(36).substring(2, 9),
+        time,
+        level,
+        message,
+      },
+    ]);
+  };
 
   // Model evaluations mapped by modelId (persisted across tab switches and reloads)
   const [evaluations, setEvaluations] = useState<Record<string, ModelEvaluationProfile>>(() => {
@@ -151,9 +211,14 @@ export const BenchmarkSuiteView: React.FC<BenchmarkSuiteViewProps> = ({
   }, [detailedOutputs]);
 
   // Report running state to parent (Header live badge)
+  const onRunningStateChangeRef = React.useRef(onRunningStateChange);
   useEffect(() => {
-    onRunningStateChange?.(isRunning, progressPercent, currentTestName, currentModelName);
-  }, [isRunning, progressPercent, currentTestName, currentModelName, onRunningStateChange]);
+    onRunningStateChangeRef.current = onRunningStateChange;
+  }, [onRunningStateChange]);
+
+  useEffect(() => {
+    onRunningStateChangeRef.current?.(isRunning, progressPercent, currentTestName, currentModelName);
+  }, [isRunning, progressPercent, currentTestName, currentModelName]);
 
   const [expandedOutputId, setExpandedOutputId] = useState<string | null>(null);
 
@@ -175,14 +240,19 @@ export const BenchmarkSuiteView: React.FC<BenchmarkSuiteViewProps> = ({
     return selectedModelIds.filter((id) => scannedSet.has(id));
   }, [scannedModels, selectedModelIds]);
 
+  const onUpdateSelectedModelsRef = React.useRef(onUpdateSelectedModels);
+  useEffect(() => {
+    onUpdateSelectedModelsRef.current = onUpdateSelectedModels;
+  }, [onUpdateSelectedModels]);
+
   // If valid selected models is empty and we have scanned models, auto-select first available real model
   useEffect(() => {
     if (scannedModels.length > 0 && validSelectedModels.length === 0) {
       const chatModel = scannedModels.find((m) => m.detectedType === 'chat' || m.detectedType === 'general');
       const fallback = chatModel ? chatModel.id : scannedModels[0].id;
-      onUpdateSelectedModels([fallback]);
+      onUpdateSelectedModelsRef.current([fallback]);
     }
-  }, [scannedModels, validSelectedModels.length, onUpdateSelectedModels]);
+  }, [scannedModels, validSelectedModels.length]);
 
   const handleToggleModel = (modelId: string) => {
     if (validSelectedModels.includes(modelId)) {
@@ -253,6 +323,8 @@ export const BenchmarkSuiteView: React.FC<BenchmarkSuiteViewProps> = ({
     setProgressPercent(0);
     setDetailedOutputs([]);
     setFailoverNotification(null);
+    setDebugLogs([]);
+    setActiveStepDescription('Benchmark oturumu başlatılıyor...');
 
     const testsToRun: BenchmarkTestDefinition[] =
       selectedScope === 'all'
@@ -261,6 +333,15 @@ export const BenchmarkSuiteView: React.FC<BenchmarkSuiteViewProps> = ({
 
     const totalSteps = validSelectedModels.length * testsToRun.length;
     let completedSteps = 0;
+
+    addDebugLog(
+      'INFO',
+      `🚀 Benchmark Suite Başlatıldı: Toplam ${validSelectedModels.length} Model, ${testsToRun.length} Test Kapsamı (${totalSteps} Toplam Adım).`
+    );
+    addDebugLog(
+      'DEBUG',
+      `🎯 Test Edilecek Modeller: [${validSelectedModels.join(', ')}] | Base URL: ${apiConfig.baseUrl}`
+    );
 
     const tempOutputs: typeof detailedOutputs = [];
     const modelScoresAccumulator: Record<
@@ -296,6 +377,19 @@ export const BenchmarkSuiteView: React.FC<BenchmarkSuiteViewProps> = ({
 
       for (const modelId of validSelectedModels) {
         setCurrentModelName(modelId);
+        const stepNum = completedSteps + 1;
+
+        setActiveStepDescription(
+          `[Adım ${stepNum}/${totalSteps}] "${modelId}" için "${test.name}" testi hazırlanıyor...`
+        );
+        addDebugLog(
+          'DEBUG',
+          `📌 [${stepNum}/${totalSteps}] Test Başlatıldı: "${test.categoryName}: ${test.name}" -> Model: "${modelId}"`
+        );
+        addDebugLog(
+          'DEBUG',
+          `📝 İstek Parametreleri: Temp=${test.temperature}, MaxTokens=${test.maxTokens}, Sistem Prompt Uzunluğu=${test.systemPrompt.length} kr.`
+        );
 
         const payload = {
           model: modelId,
@@ -309,6 +403,10 @@ export const BenchmarkSuiteView: React.FC<BenchmarkSuiteViewProps> = ({
         };
 
         try {
+          setActiveStepDescription(
+            `[Bağlanılıyor] "${modelId}" için HTTP isteği gönderildi, sunucu yanıtı bekleniyor...`
+          );
+
           // REAL HTTP API call to user's real model!
           const record = await executeEndpointTest(
             apiConfig,
@@ -318,10 +416,20 @@ export const BenchmarkSuiteView: React.FC<BenchmarkSuiteViewProps> = ({
               modelId,
               onCandidateAttempt: (candidateName) => {
                 setCurrentCandidateName(candidateName);
+                setActiveStepDescription(
+                  `[Aday API] "${candidateName}" üzerinden istek gönderiliyor...`
+                );
+              },
+              onDebugLog: (level, msg) => {
+                addDebugLog(level, msg);
               },
               onFailoverTriggered: (fromCand, toCand, reason) => {
                 setFailoverNotification(
                   `⚠️ [${fromCand}] API hata verdi (${reason}). Otomatik olarak [${toCand}] API'sine geçildi!`
+                );
+                addDebugLog(
+                  'WARN',
+                  `⚠️ FAILOVER TETİKLENDİ: [${fromCand}] başarısız oldu (${reason}) -> Yedek API [${toCand}] devreye alındı!`
                 );
               },
             }
@@ -337,6 +445,14 @@ export const BenchmarkSuiteView: React.FC<BenchmarkSuiteViewProps> = ({
             ? record.responsePayload?.choices?.[0]?.message?.content || record.outputPreview || ''
             : '';
 
+          setActiveStepDescription(
+            `[Kriter Analizi] "${modelId}" yanıtı alındı (${record.latencyMs}ms). Kurallar doğrulanıyor...`
+          );
+          addDebugLog(
+            'DEBUG',
+            `🔍 Kriter Değerlendirmesi: "${test.name}" çıktısı taranıyor (${rawOutput.length} karakter)...`
+          );
+
           // Real evaluation based on model's real output
           const evaluation = isSuccess
             ? evaluateTestOutput(
@@ -350,6 +466,11 @@ export const BenchmarkSuiteView: React.FC<BenchmarkSuiteViewProps> = ({
                 critique: `Hata: API model yanıtı veremedi (${record.errorMessage || 'HTTP Hatası'}).`,
                 matchedKeywords: [],
               };
+
+          addDebugLog(
+            isSuccess ? 'SUCCESS' : 'ERROR',
+            `📊 Değerlendirme Sonucu: Puan ${evaluation.score}/100 | ${evaluation.critique} (Gecikme: ${record.latencyMs}ms, Hız: ${record.tokensPerSecond || 0} t/s)`
+          );
 
           tempOutputs.push({
             modelId,
@@ -378,6 +499,7 @@ export const BenchmarkSuiteView: React.FC<BenchmarkSuiteViewProps> = ({
             }
           }
         } catch (err: any) {
+          addDebugLog('ERROR', `💥 Beklenmeyen İstisna Hatası: ${err.message}`);
           tempOutputs.push({
             modelId,
             testId: test.id,
@@ -486,6 +608,11 @@ export const BenchmarkSuiteView: React.FC<BenchmarkSuiteViewProps> = ({
 
     setEvaluations(finalProfiles);
     setIsRunning(false);
+    setActiveStepDescription('Benchmark başarıyla tamamlandı!');
+    addDebugLog(
+      'SUCCESS',
+      `🎉 Benchmark Testi Tamamlandı! ${validSelectedModels.length} model için toplam ${totalSteps} test sonucu karneye işlendi.`
+    );
   };
 
   return (
@@ -950,24 +1077,202 @@ export const BenchmarkSuiteView: React.FC<BenchmarkSuiteViewProps> = ({
               </div>
             )}
 
-            {/* Progress Bar when running */}
+            {/* Live Real-time Execution Indicator when Running */}
             {isRunning && (
-              <div className="space-y-1.5 pt-2">
-                <div className="flex items-center justify-between text-[11px] text-slate-400 font-mono">
-                  <span>
-                    Aktif İstek: <span className="text-emerald-400 font-semibold">{currentTestName}</span>
-                    {currentCandidateName && <span className="text-slate-500"> ({currentCandidateName})</span>}
-                  </span>
-                  <span>Model: <span className="text-white font-semibold">{currentModelName}</span> (%{progressPercent})</span>
+              <div className="p-4 rounded-xl bg-slate-950 border border-emerald-500/40 space-y-3 shadow-lg">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-800 pb-2.5">
+                  <div className="flex items-center gap-2">
+                    <span className="relative flex h-3 w-3">
+                      <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75" />
+                      <span className="relative inline-flex rounded-full h-3 w-3 bg-emerald-500" />
+                    </span>
+                    <span className="text-xs font-bold text-white">
+                      Aktif Test Yürütülüyor:
+                    </span>
+                    <span className="text-xs font-mono font-semibold text-emerald-400">
+                      {currentTestName}
+                    </span>
+                  </div>
+
+                  <div className="flex items-center gap-3 text-xs font-mono">
+                    <span className="flex items-center gap-1.5 text-amber-300 bg-amber-950/60 px-2 py-0.5 rounded border border-amber-500/30">
+                      <Clock className="w-3.5 h-3.5 animate-spin" />
+                      <span>İstek Süresi: {elapsedRequestSec.toFixed(1)}sn</span>
+                    </span>
+                    <span className="text-slate-300 bg-slate-900 px-2 py-0.5 rounded border border-slate-800">
+                      Model: <strong className="text-white">{currentModelName}</strong>
+                    </span>
+                    <span className="text-emerald-400 font-bold bg-emerald-950/80 px-2 py-0.5 rounded border border-emerald-500/30">
+                      %{progressPercent}
+                    </span>
+                  </div>
                 </div>
-                <div className="w-full h-2 bg-slate-950 rounded-full overflow-hidden">
+
+                {/* Sub-step description ticker */}
+                <div className="flex items-center justify-between text-[11px] text-slate-300 font-mono bg-slate-900/80 px-3 py-1.5 rounded-lg border border-slate-800">
+                  <div className="flex items-center gap-2 truncate">
+                    <span className="w-1.5 h-1.5 rounded-full bg-cyan-400 animate-pulse" />
+                    <span className="text-slate-400">Canlı Durum:</span>
+                    <span className="text-cyan-300 font-semibold truncate">{activeStepDescription || 'İstek hazırlanıyor...'}</span>
+                  </div>
+                  {currentCandidateName && (
+                    <span className="text-slate-500 shrink-0 hidden md:inline">
+                      API: {currentCandidateName}
+                    </span>
+                  )}
+                </div>
+
+                {/* Animated Gradient Progress Bar */}
+                <div className="w-full h-2.5 bg-slate-900 rounded-full overflow-hidden p-0.5 border border-slate-800">
                   <div
-                    className="h-full bg-emerald-400 transition-all duration-300"
+                    className="h-full bg-gradient-to-r from-emerald-500 via-teal-400 to-cyan-400 rounded-full transition-all duration-300 shadow-sm"
                     style={{ width: `${progressPercent}%` }}
                   />
                 </div>
               </div>
             )}
+
+            {/* Live Debug Log Console (Terminal) */}
+            <div className="rounded-xl bg-slate-950 border border-slate-800 overflow-hidden mt-3">
+              <div className="flex items-center justify-between px-4 py-2.5 bg-slate-900/90 border-b border-slate-800">
+                <div className="flex items-center gap-2.5">
+                  <Terminal className="w-4 h-4 text-emerald-400" />
+                  <span className="text-xs font-bold text-slate-200">
+                    Canlı Debug & Süreç Konsolu
+                  </span>
+                  {isRunning ? (
+                    <span className="flex items-center gap-1 text-[10px] font-mono text-emerald-300 bg-emerald-950/80 px-2 py-0.5 rounded border border-emerald-500/30">
+                      <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-ping" />
+                      <span>İstek Dinleniyor ({elapsedRequestSec.toFixed(1)}s)</span>
+                    </span>
+                  ) : (
+                    <span className="text-[10px] font-mono text-slate-500">
+                      ({debugLogs.length} Log Kaydı)
+                    </span>
+                  )}
+                </div>
+
+                <div className="flex items-center gap-2">
+                  {/* Filter chips */}
+                  <div className="flex items-center gap-1 p-0.5 bg-slate-950 border border-slate-800 rounded text-[10px]">
+                    <button
+                      type="button"
+                      onClick={() => setLogFilter('all')}
+                      className={`px-2 py-0.5 rounded transition-colors ${
+                        logFilter === 'all' ? 'bg-slate-800 text-white font-semibold' : 'text-slate-400 hover:text-slate-200'
+                      }`}
+                    >
+                      Tümü
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setLogFilter('debug')}
+                      className={`px-2 py-0.5 rounded transition-colors ${
+                        logFilter === 'debug' ? 'bg-slate-800 text-cyan-300 font-semibold' : 'text-slate-400 hover:text-slate-200'
+                      }`}
+                    >
+                      Debug
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setLogFilter('error')}
+                      className={`px-2 py-0.5 rounded transition-colors ${
+                        logFilter === 'error' ? 'bg-slate-800 text-rose-300 font-semibold' : 'text-slate-400 hover:text-slate-200'
+                      }`}
+                    >
+                      Hatalar
+                    </button>
+                  </div>
+
+                  {/* Copy logs */}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (debugLogs.length === 0) return;
+                      const text = debugLogs.map((l) => `[${l.time}] [${l.level}] ${l.message}`).join('\n');
+                      navigator.clipboard.writeText(text);
+                      setCopiedLogs(true);
+                      setTimeout(() => setCopiedLogs(false), 2000);
+                    }}
+                    className="flex items-center gap-1 px-2 py-1 bg-slate-900 hover:bg-slate-800 border border-slate-800 rounded text-[10px] text-slate-300 transition-colors"
+                    title="Tüm logları panoya kopyala"
+                  >
+                    {copiedLogs ? <Check className="w-3 h-3 text-emerald-400" /> : <Copy className="w-3 h-3" />}
+                    <span>{copiedLogs ? 'Kopyalandı' : 'Kopyala'}</span>
+                  </button>
+
+                  {/* Clear logs */}
+                  <button
+                    type="button"
+                    onClick={() => setDebugLogs([])}
+                    className="flex items-center gap-1 px-2 py-1 bg-slate-900 hover:bg-slate-800 border border-slate-800 rounded text-[10px] text-slate-400 hover:text-rose-400 transition-colors"
+                    title="Konsol geçmişini temizle"
+                  >
+                    <Trash2 className="w-3 h-3" />
+                    <span>Temizle</span>
+                  </button>
+
+                  {/* Collapse / Expand */}
+                  <button
+                    type="button"
+                    onClick={() => setIsLogTerminalOpen(!isLogTerminalOpen)}
+                    className="p-1 text-slate-400 hover:text-white"
+                  >
+                    {isLogTerminalOpen ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
+                  </button>
+                </div>
+              </div>
+
+              {isLogTerminalOpen && (
+                <div className="p-3 bg-black/90 font-mono text-[11px] max-h-60 overflow-y-auto space-y-1">
+                  {debugLogs.length === 0 ? (
+                    <div className="text-slate-500 italic py-4 text-center">
+                      Henüz log kaydı yok. &quot;Gerçek Modeli Test Et&quot; butonuna bastığınızda, arka planda gerçekleşen tüm HTTP istekleri, token ölçümleri, gecikme sayacı ve kriter değerlendirmeleri burada anlık akacaktır.
+                    </div>
+                  ) : (
+                    debugLogs
+                      .filter((item) => {
+                        if (logFilter === 'debug') return item.level === 'DEBUG';
+                        if (logFilter === 'error') return item.level === 'ERROR' || item.level === 'WARN';
+                        return true;
+                      })
+                      .map((item) => {
+                        let badgeColor = 'bg-slate-800 text-slate-300';
+                        if (item.level === 'DEBUG') badgeColor = 'bg-cyan-950/80 text-cyan-300 border border-cyan-500/30';
+                        if (item.level === 'WAIT') badgeColor = 'bg-amber-950/80 text-amber-300 border border-amber-500/30';
+                        if (item.level === 'INFO') badgeColor = 'bg-slate-900 text-slate-300 border border-slate-700';
+                        if (item.level === 'SUCCESS') badgeColor = 'bg-emerald-950/80 text-emerald-300 border border-emerald-500/30';
+                        if (item.level === 'WARN') badgeColor = 'bg-orange-950/80 text-orange-300 border border-orange-500/30';
+                        if (item.level === 'ERROR') badgeColor = 'bg-rose-950/80 text-rose-300 border border-rose-500/30';
+
+                        return (
+                          <div key={item.id} className="flex items-start gap-2 leading-relaxed hover:bg-slate-900/50 px-1 py-0.5 rounded">
+                            <span className="text-slate-600 shrink-0 select-none">[{item.time}]</span>
+                            <span className={`px-1.5 py-0.2 rounded text-[9px] font-bold shrink-0 ${badgeColor}`}>
+                              {item.level}
+                            </span>
+                            <span className="text-slate-300 break-all">{item.message}</span>
+                          </div>
+                        );
+                      })
+                  )}
+
+                  {isRunning && (
+                    <div className="flex items-center gap-2 text-amber-400/90 pt-1 border-t border-slate-900/80 animate-pulse">
+                      <span className="text-slate-600 select-none">[{new Date().toLocaleTimeString()}]</span>
+                      <span className="px-1.5 py-0.2 rounded text-[9px] font-bold bg-amber-950/80 text-amber-300 border border-amber-500/30">
+                        WAIT {elapsedRequestSec.toFixed(1)}s
+                      </span>
+                      <span className="text-amber-200">
+                        {activeStepDescription || 'Sunucu yanıtı bekleniyor (HTTP soket bağlantısı açık)...'}
+                      </span>
+                    </div>
+                  )}
+
+                  <div ref={terminalEndRef} />
+                </div>
+              )}
+            </div>
           </div>
         </div>
       )}

@@ -39,14 +39,30 @@ export const EndpointTester: React.FC<EndpointTesterProps> = ({
   const [selectedEndpoint, setSelectedEndpoint] = useState<EndpointType>('/chat/completions');
   const [editorMode, setEditorMode] = useState<'form' | 'json'>('form');
   const [selectedModel, setSelectedModel] = useState<string>(
-    defaultSelectedModel || models[0]?.id || ''
+    defaultSelectedModel || models[0]?.id || 'gpt-4o-mini'
   );
+  const [isCustomModelInput, setIsCustomModelInput] = useState(false);
+  const prevDefaultModelRef = React.useRef(defaultSelectedModel);
+
   const [jsonPayload, setJsonPayload] = useState<string>('');
   const [isRunning, setIsRunning] = useState(false);
+  const [elapsedSec, setElapsedSec] = useState(0);
   const [streamOutput, setStreamOutput] = useState<string>('');
   const [lastRecord, setLastRecord] = useState<BenchmarkRecord | null>(null);
   const [copiedResponse, setCopiedResponse] = useState(false);
   const [failoverNotice, setFailoverNotice] = useState<{ from: string; to: string; reason: string } | null>(null);
+
+  useEffect(() => {
+    let timer: any;
+    if (isRunning) {
+      timer = setInterval(() => {
+        setElapsedSec((s) => +(s + 0.1).toFixed(1));
+      }, 100);
+    } else {
+      setElapsedSec(0);
+    }
+    return () => clearInterval(timer);
+  }, [isRunning]);
 
   // Form states for endpoints
   const [chatMessages, setChatMessages] = useState<Array<{ role: string; content: string }>>([
@@ -95,14 +111,15 @@ export const EndpointTester: React.FC<EndpointTesterProps> = ({
     'Model kuantizasyonu (INT8/FP4) ve KV-cache optimizasyonları gecikmeyi önemli ölçüde azaltır.\nVeritabanı indeksleme algoritmaları B-Tree ve Hash temelli yapılandırılır.\nSpeculative decoding ve vLLM PagedAttention yüksek verimlilik sağlar.\nCSS animasyonları GPU hızlandırması ile 60 fps akıcılık sunar.'
   );
 
-  // Update selected model when prop changes or models are scanned
+  // Update selected model when defaultSelectedModel prop explicitly changes from parent or when models are scanned
   useEffect(() => {
-    if (defaultSelectedModel) {
+    if (defaultSelectedModel && defaultSelectedModel !== prevDefaultModelRef.current) {
       setSelectedModel(defaultSelectedModel);
+      prevDefaultModelRef.current = defaultSelectedModel;
     } else if (models.length > 0 && !selectedModel) {
       setSelectedModel(models[0].id);
     }
-  }, [defaultSelectedModel, models, selectedModel]);
+  }, [defaultSelectedModel, models.length, selectedModel]);
 
   // Sync JSON payload on endpoint or form change
   useEffect(() => {
@@ -300,8 +317,8 @@ export const EndpointTester: React.FC<EndpointTesterProps> = ({
                   setSelectedEndpoint(ep);
                   setLastRecord(null);
                   setStreamOutput('');
-                  // If typical model exists and current model is empty, set typical
-                  if (meta.typicalModel) {
+                  // Only set typical model if current selected model is empty
+                  if (!selectedModel && meta.typicalModel) {
                     setSelectedModel(meta.typicalModel);
                   }
                 }}
@@ -368,36 +385,101 @@ export const EndpointTester: React.FC<EndpointTesterProps> = ({
 
             {/* Model Selection Row (for endpoints that take a model) */}
             {selectedEndpoint !== '/models' && (
-              <div className="space-y-1.5">
-                <label className="flex items-center justify-between text-xs font-medium text-slate-300">
-                  <span>Model Tanımlayıcısı (model)</span>
-                  <span className="text-[11px] text-slate-400">Taranan listeden seçin veya yazın</span>
-                </label>
-                <div className="flex gap-2">
-                  <input
-                    type="text"
-                    value={selectedModel}
-                    onChange={(e) => setSelectedModel(e.target.value)}
-                    placeholder={endpointMeta.typicalModel || 'gpt-4o-mini'}
-                    className="flex-1 px-3 py-2 bg-slate-950 border border-slate-800 rounded-lg text-xs font-mono text-slate-200 focus:outline-none focus:ring-1 focus:ring-emerald-500"
-                  />
-                  {models.length > 0 && (
+              <div className="space-y-2 p-3 rounded-lg bg-slate-950/80 border border-slate-800">
+                <div className="flex items-center justify-between">
+                  <label className="text-xs font-semibold text-slate-200 flex items-center gap-1.5">
+                    <span className="w-2 h-2 rounded-full bg-emerald-400" />
+                    <span>Test Edilecek Model (model)</span>
+                    {models.length > 0 && (
+                      <span className="text-[10px] text-slate-400 font-normal">
+                        ({models.length} model taranmış)
+                      </span>
+                    )}
+                  </label>
+                  <div className="flex items-center gap-2">
+                    {models.length > 0 && (
+                      <button
+                        type="button"
+                        onClick={() => setIsCustomModelInput(!isCustomModelInput)}
+                        className="text-[11px] text-emerald-400 hover:text-emerald-300 font-medium underline"
+                      >
+                        {isCustomModelInput ? '← Taranan Listeden Seç' : '+ Farklı Model Adı Yaz'}
+                      </button>
+                    )}
+                    {onTriggerScan && (
+                      <button
+                        type="button"
+                        onClick={onTriggerScan}
+                        className="text-[11px] text-slate-400 hover:text-white"
+                        title="API'deki modelleri yeniden tara"
+                      >
+                        Yeniden Tara
+                      </button>
+                    )}
+                  </div>
+                </div>
+
+                {models.length > 0 && !isCustomModelInput ? (
+                  <div className="flex flex-col sm:flex-row gap-2 items-stretch sm:items-center">
                     <select
-                      value=""
-                      onChange={(e) => {
-                        if (e.target.value) setSelectedModel(e.target.value);
-                      }}
-                      className="px-2.5 py-2 bg-slate-950 border border-slate-800 rounded-lg text-xs text-slate-300 focus:outline-none focus:ring-1 focus:ring-emerald-500"
+                      value={selectedModel}
+                      onChange={(e) => setSelectedModel(e.target.value)}
+                      className="flex-1 px-3 py-2 bg-slate-900 border border-slate-700/80 rounded-lg text-xs font-mono font-medium text-emerald-300 focus:outline-none focus:ring-1 focus:ring-emerald-500"
                     >
-                      <option value="">Taranan Modellerden Seç...</option>
+                      {selectedModel && !models.some((m) => m.id === selectedModel) && (
+                        <option value={selectedModel}>
+                          {selectedModel} (Aktif Model)
+                        </option>
+                      )}
                       {models.map((m) => (
                         <option key={m.id} value={m.id}>
-                          {m.id} ({m.detectedType || 'genel'})
+                          {m.id} {m.detectedType ? `[${m.detectedType}]` : ''}
                         </option>
                       ))}
                     </select>
-                  )}
-                </div>
+
+                    {endpointMeta.typicalModel && endpointMeta.typicalModel !== selectedModel && (
+                      <button
+                        type="button"
+                        onClick={() => setSelectedModel(endpointMeta.typicalModel)}
+                        className="px-2.5 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 text-[11px] font-mono rounded-md border border-slate-700 whitespace-nowrap transition-colors flex items-center gap-1.5"
+                        title={`${endpointMeta.name} için önerilen modeli kullan`}
+                      >
+                        <span className="text-emerald-400">Önerilen:</span>
+                        <span>{endpointMeta.typicalModel}</span>
+                      </button>
+                    )}
+                  </div>
+                ) : (
+                  <div className="flex flex-col sm:flex-row gap-2 items-stretch sm:items-center">
+                    <input
+                      type="text"
+                      value={selectedModel}
+                      onChange={(e) => setSelectedModel(e.target.value)}
+                      placeholder={endpointMeta.typicalModel || 'gpt-4o-mini'}
+                      className="flex-1 px-3 py-2 bg-slate-900 border border-slate-700/80 rounded-lg text-xs font-mono text-emerald-300 focus:outline-none focus:ring-1 focus:ring-emerald-500"
+                    />
+                    {endpointMeta.typicalModel && endpointMeta.typicalModel !== selectedModel && (
+                      <button
+                        type="button"
+                        onClick={() => setSelectedModel(endpointMeta.typicalModel)}
+                        className="px-2.5 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 text-[11px] font-mono rounded-md border border-slate-700 whitespace-nowrap transition-colors flex items-center gap-1.5"
+                      >
+                        <span className="text-emerald-400">Önerilen:</span>
+                        <span>{endpointMeta.typicalModel}</span>
+                      </button>
+                    )}
+                    {models.length === 0 && onTriggerScan && (
+                      <button
+                        type="button"
+                        onClick={onTriggerScan}
+                        className="px-3 py-2 bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 rounded-lg text-xs font-medium hover:bg-emerald-500/30 whitespace-nowrap"
+                      >
+                        Modelleri Tara (/models)
+                      </button>
+                    )}
+                  </div>
+                )}
               </div>
             )}
 
@@ -723,7 +805,11 @@ export const EndpointTester: React.FC<EndpointTesterProps> = ({
                 className="w-full flex items-center justify-center gap-2 py-3 px-4 text-xs font-semibold text-slate-950 bg-emerald-400 hover:bg-emerald-300 rounded-lg transition-colors shadow-sm disabled:opacity-50"
               >
                 <Play className={`w-3.5 h-3.5 fill-current ${isRunning ? 'animate-pulse' : ''}`} />
-                <span>{isRunning ? 'Test İstemi Gönderiliyor & Ölçülüyor...' : `Testi Çalıştır (${selectedEndpoint})`}</span>
+                <span>
+                  {isRunning
+                    ? `İstek Gönderiliyor & Ölçülüyor... (${elapsedSec.toFixed(1)} sn) [${selectedModel}]`
+                    : `Testi Çalıştır (${selectedEndpoint}) - Model: ${selectedModel || 'Varsayılan'}`}
+                </span>
               </button>
             </div>
           </div>

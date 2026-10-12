@@ -5,7 +5,6 @@ import {
   FileText,
   Code2,
   Zap,
-  Star,
   CheckCircle2,
   AlertTriangle,
   ArrowRight,
@@ -42,19 +41,43 @@ export const ModelGuideView: React.FC<ModelGuideViewProps> = ({
   const [searchQuery, setSearchQuery] = useState('');
   const [filterCategory, setFilterCategory] = useState<'all' | 'doc' | 'code' | 'speed' | 'embedding' | 'audio'>('all');
 
-  // Compute real benchmark stats per model from real test records
+  // Compute real benchmark stats per model from real test records and localStorage evaluations
   const realModelStats = useMemo(() => {
+    let savedEvals: Record<string, any> = {};
+    try {
+      const raw = localStorage.getItem('openai_suite_evaluations');
+      if (raw) savedEvals = JSON.parse(raw);
+    } catch {}
+
     const map: Record<
       string,
       {
         docScore?: number;
         codeScore?: number;
+        reasoningScore?: number;
+        overallScore?: number;
         avgLatencyMs?: number;
         avgTokPerSec?: number;
         testCount: number;
+        verdictTag?: string;
       }
     > = {};
 
+    // Incorporate saved benchmark evaluations
+    Object.entries(savedEvals).forEach(([modelId, profile]: [string, any]) => {
+      map[modelId] = {
+        docScore: profile.categoryScores?.document_analysis,
+        codeScore: profile.categoryScores?.coding,
+        reasoningScore: profile.categoryScores?.reasoning,
+        overallScore: profile.overallScore,
+        avgLatencyMs: profile.avgLatencyMs,
+        avgTokPerSec: profile.avgTokensPerSec,
+        testCount: 6,
+        verdictTag: profile.verdictTag,
+      };
+    });
+
+    // Also fold in individual test records
     records.forEach((r) => {
       if (!map[r.modelId]) {
         map[r.modelId] = { testCount: 0 };
@@ -67,10 +90,10 @@ export const ModelGuideView: React.FC<ModelGuideViewProps> = ({
       if (r.category === 'coding' && r.categoryScore !== undefined) {
         map[r.modelId].codeScore = r.categoryScore;
       }
-      if (r.latencyMs) {
+      if (r.latencyMs && !map[r.modelId].avgLatencyMs) {
         map[r.modelId].avgLatencyMs = r.latencyMs;
       }
-      if (r.tokensPerSecond) {
+      if (r.tokensPerSecond && !map[r.modelId].avgTokPerSec) {
         map[r.modelId].avgTokPerSec = r.tokensPerSecond;
       }
     });
@@ -107,13 +130,29 @@ export const ModelGuideView: React.FC<ModelGuideViewProps> = ({
       if (!matchSearch) return false;
 
       if (filterCategory === 'doc') {
-        return item.guide.documentRating >= 4 || (item.stats?.docScore && item.stats.docScore >= 75);
+        return (
+          (item.stats?.docScore !== undefined && item.stats.docScore >= 60) ||
+          item.guide.bestFor.toLowerCase().includes('döküman') ||
+          item.guide.bestFor.toLowerCase().includes('pdf') ||
+          item.guide.bestFor.toLowerCase().includes('rag')
+        );
       }
       if (filterCategory === 'code') {
-        return item.guide.codingRating >= 4 || (item.stats?.codeScore && item.stats.codeScore >= 75);
+        return (
+          (item.stats?.codeScore !== undefined && item.stats.codeScore >= 60) ||
+          item.guide.bestFor.toLowerCase().includes('kod') ||
+          item.guide.bestFor.toLowerCase().includes('yazılım') ||
+          item.guide.bestFor.toLowerCase().includes('mimari')
+        );
       }
       if (filterCategory === 'speed') {
-        return item.guide.speedRating >= 4 || (item.stats?.avgTokPerSec && item.stats.avgTokPerSec >= 80);
+        return (
+          (item.stats?.avgTokPerSec !== undefined && item.stats.avgTokPerSec >= 60) ||
+          item.guide.costTier === 'Düşük' ||
+          item.modelId.includes('mini') ||
+          item.modelId.includes('flash') ||
+          item.modelId.includes('turbo')
+        );
       }
       if (filterCategory === 'embedding') {
         return item.detectedType === 'embedding' || item.modelId.includes('embed');
@@ -125,21 +164,6 @@ export const ModelGuideView: React.FC<ModelGuideViewProps> = ({
       return true;
     });
   }, [displayItems, searchQuery, filterCategory]);
-
-  const renderStars = (rating: number, color: string) => {
-    return (
-      <div className="flex items-center gap-0.5">
-        {[1, 2, 3, 4, 5].map((s) => (
-          <Star
-            key={s}
-            className={`w-3 h-3 ${
-              s <= rating ? `${color} fill-current` : 'text-slate-700'
-            }`}
-          />
-        ))}
-      </div>
-    );
-  };
 
   return (
     <div className="space-y-6">
@@ -324,57 +348,67 @@ export const ModelGuideView: React.FC<ModelGuideViewProps> = ({
 
                 {/* Real Test Stats Badge if Tested */}
                 {stats && stats.testCount > 0 ? (
-                  <div className="my-2 p-2.5 rounded-lg bg-slate-950 border border-emerald-500/30 text-xs">
-                    <span className="text-[10px] text-emerald-400 font-mono font-bold block mb-1">
-                      ✓ GERÇEK TEST SONUÇLARI ({stats.testCount} Test Yapıldı)
-                    </span>
-                    <div className="grid grid-cols-3 gap-2 text-center">
-                      <div>
+                  <div className="my-2 p-3 rounded-lg bg-slate-950 border border-emerald-500/40 text-xs space-y-2">
+                    <div className="flex items-center justify-between">
+                      <span className="text-[10px] text-emerald-400 font-mono font-bold flex items-center gap-1.5">
+                        <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />
+                        <span>GERÇEK ÖLÇÜLEN PUANLAR ({stats.testCount} Test Yapıldı)</span>
+                      </span>
+                      {stats.verdictTag && (
+                        <span className="text-[10px] font-semibold text-emerald-300 bg-emerald-950/80 px-2 py-0.5 rounded border border-emerald-500/30">
+                          {stats.verdictTag}
+                        </span>
+                      )}
+                    </div>
+                    <div className="grid grid-cols-4 gap-2 text-center pt-1 border-t border-slate-800/80">
+                      <div className="p-1.5 rounded bg-slate-900/60">
                         <div className="text-[10px] text-slate-400">Döküman</div>
-                        <div className="font-mono font-bold text-blue-400">
+                        <div className="font-mono font-bold text-sm text-blue-400">
                           {stats.docScore !== undefined ? `%${stats.docScore}` : '-'}
                         </div>
                       </div>
-                      <div>
+                      <div className="p-1.5 rounded bg-slate-900/60">
                         <div className="text-[10px] text-slate-400">Kodlama</div>
-                        <div className="font-mono font-bold text-emerald-400">
+                        <div className="font-mono font-bold text-sm text-emerald-400">
                           {stats.codeScore !== undefined ? `%${stats.codeScore}` : '-'}
                         </div>
                       </div>
-                      <div>
+                      <div className="p-1.5 rounded bg-slate-900/60">
+                        <div className="text-[10px] text-slate-400">Genel Skor</div>
+                        <div className="font-mono font-bold text-sm text-amber-300">
+                          {stats.overallScore !== undefined ? `%${stats.overallScore}` : '-'}
+                        </div>
+                      </div>
+                      <div className="p-1.5 rounded bg-slate-900/60">
                         <div className="text-[10px] text-slate-400">Ölçülen Hız</div>
-                        <div className="font-mono font-bold text-white">
+                        <div className="font-mono font-bold text-xs text-white mt-0.5">
                           {stats.avgTokPerSec ? `${stats.avgTokPerSec} t/s` : (stats.avgLatencyMs ? `${stats.avgLatencyMs}ms` : '-')}
                         </div>
                       </div>
                     </div>
                   </div>
                 ) : (
-                  /* Rating Strip (Döküman & Kod) */
-                  <div className="grid grid-cols-3 gap-2 py-3 border-b border-slate-800 text-xs">
-                    <div>
-                      <div className="text-[10px] text-slate-400 flex items-center gap-1 mb-0.5">
-                        <FileText className="w-3 h-3 text-blue-400" />
-                        <span>Döküman</span>
+                  <div className="my-2 p-3 rounded-lg bg-slate-950/90 border border-dashed border-slate-800 text-xs">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <span className="w-2 h-2 rounded-full bg-amber-400 animate-pulse" />
+                        <span className="text-[11px] font-semibold text-slate-300">
+                          Henüz Test Edilmedi (Puan Bekleniyor)
+                        </span>
                       </div>
-                      {renderStars(guide.documentRating, 'text-blue-400')}
+                      <button
+                        onClick={() => {
+                          onSelectModelForBenchmark(modelId);
+                          onGoToBenchmark();
+                        }}
+                        className="text-[11px] text-emerald-400 hover:text-emerald-300 font-semibold underline flex items-center gap-1"
+                      >
+                        <span>▶ Benchmark Yap & Puanla</span>
+                      </button>
                     </div>
-
-                    <div>
-                      <div className="text-[10px] text-slate-400 flex items-center gap-1 mb-0.5">
-                        <Code2 className="w-3 h-3 text-emerald-400" />
-                        <span>Kodlama</span>
-                      </div>
-                      {renderStars(guide.codingRating, 'text-emerald-400')}
-                    </div>
-
-                    <div>
-                      <div className="text-[10px] text-slate-400 flex items-center gap-1 mb-0.5">
-                        <Zap className="w-3 h-3 text-amber-400" />
-                        <span>Hız</span>
-                      </div>
-                      {renderStars(guide.speedRating, 'text-amber-400')}
-                    </div>
+                    <p className="text-[10px] text-slate-500 mt-1.5 leading-relaxed">
+                      Sallama veya tahmini puan gösterilmez. Bu modelin gerçek döküman ve kodlama puanı API üzerinden Benchmark testi çalıştırıldığında ölçülür.
+                    </p>
                   </div>
                 )}
 

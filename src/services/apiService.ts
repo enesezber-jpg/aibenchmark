@@ -170,6 +170,8 @@ async function fetchModelsFromCandidate(config: ApiConfig, candidate: ApiCandida
   }
 }
 
+export type DebugLogLevel = 'DEBUG' | 'INFO' | 'WAIT' | 'SUCCESS' | 'WARN' | 'ERROR';
+
 /**
  * Execute a test on any of the 10 endpoints with automatic multi-API failover
  */
@@ -184,6 +186,7 @@ export async function executeEndpointTest(
     onStreamChunk?: (accumulatedText: string, chunk: string) => void;
     onCandidateAttempt?: (candidateName: string, index: number, total: number) => void;
     onFailoverTriggered?: (fromCandidateName: string, toCandidateName: string, reason: string) => void;
+    onDebugLog?: (level: DebugLogLevel, message: string, detail?: any) => void;
   }
 ): Promise<BenchmarkRecord> {
   const candidates = getActiveCandidates(config);
@@ -192,11 +195,22 @@ export async function executeEndpointTest(
   const attempts: BenchmarkRecord['attemptedKeys'] = [];
   const overallStartTime = performance.now();
 
+  options?.onDebugLog?.('DEBUG', `🎯 Test Başlatıldı: Model="${targetModel}", Uç Nokta="${endpoint}", Aday Sayısı=${candidates.length}`);
+
   for (let i = 0; i < candidates.length; i++) {
     const candidate = candidates[i];
     options?.onCandidateAttempt?.(candidate.name, i + 1, candidates.length);
+    options?.onDebugLog?.(
+      'INFO',
+      `📡 [${i + 1}/${candidates.length}] API Deneniyor: "${candidate.name}" (${candidate.baseUrl})`
+    );
 
     try {
+      options?.onDebugLog?.(
+        'DEBUG',
+        `📤 İstek Paketi Gönderiliyor: POST ${candidate.baseUrl}${endpoint} (Model: ${targetModel})`
+      );
+
       const singleResult = await executeSingleCandidateAttempt(
         config,
         candidate,
@@ -211,6 +225,11 @@ export async function executeEndpointTest(
         httpStatus: singleResult.httpStatus,
         latencyMs: singleResult.latencyMs,
       });
+
+      options?.onDebugLog?.(
+        'SUCCESS',
+        `✅ [${candidate.name}] Başarılı (HTTP ${singleResult.httpStatus}, Süre: ${singleResult.latencyMs}ms, Token: ${singleResult.totalTokens || 0}, Hız: ${singleResult.tokensPerSecond || 0} t/s)`
+      );
 
       return {
         ...singleResult,
@@ -229,9 +248,19 @@ export async function executeEndpointTest(
         latencyMs: failLatency,
       });
 
+      options?.onDebugLog?.(
+        'ERROR',
+        `❌ [${candidate.name}] İstek Başarısız (${err.status || 500}): ${err.message}`
+      );
+
       // If failover is enabled and there's another candidate, notify and continue
       if (config.enableFailover !== false && i < candidates.length - 1) {
-        options?.onFailoverTriggered?.(candidate.name, candidates[i + 1].name, err.message);
+        const nextCand = candidates[i + 1];
+        options?.onDebugLog?.(
+          'WARN',
+          `⚠️ Failover Devrede: "${candidate.name}" başarısız oldu -> Sıradaki API: "${nextCand.name}"`
+        );
+        options?.onFailoverTriggered?.(candidate.name, nextCand.name, err.message);
         continue;
       }
       break;
@@ -243,6 +272,11 @@ export async function executeEndpointTest(
   const errorSummary = attempts
     .map((a) => `[${a.keyName}]: ${a.error || 'Hata'}`)
     .join(' | ');
+
+  options?.onDebugLog?.(
+    'ERROR',
+    `💥 Tüm API adayları (${candidates.length}) tüketildi ve başarısız oldu.`
+  );
 
   return {
     id: recordId,
@@ -274,6 +308,7 @@ async function executeSingleCandidateAttempt(
     audioBase64?: string;
     audioFileName?: string;
     onStreamChunk?: (accumulatedText: string, chunk: string) => void;
+    onDebugLog?: (level: DebugLogLevel, message: string, detail?: any) => void;
   }
 ): Promise<BenchmarkRecord> {
   const startTime = performance.now();
@@ -285,6 +320,8 @@ async function executeSingleCandidateAttempt(
   let responseData: any;
   let latencyMs = 0;
   let httpStatus = 200;
+
+  options?.onDebugLog?.('WAIT', `⏳ Sunucu yanıtı bekleniyor... [${candidate.name}] -> ${targetBaseUrl}${endpoint}`);
 
   // 1. Streaming SSE for Chat / Completions
   if (payload?.stream && (endpoint === '/chat/completions' || endpoint === '/completions') && config.useProxy) {

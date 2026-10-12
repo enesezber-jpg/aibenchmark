@@ -2,9 +2,11 @@ import React from 'react';
 import { SlidersHorizontal, ShieldCheck, Zap } from 'lucide-react';
 import type { ApiConfig } from '../types';
 
+export type NavigationTab = 'benchmark' | 'ping' | 'guide' | 'endpoints' | 'reports';
+
 interface HeaderProps {
-  activeTab: 'benchmark' | 'guide' | 'endpoints' | 'reports';
-  setActiveTab: (tab: 'benchmark' | 'guide' | 'endpoints' | 'reports') => void;
+  activeTab: NavigationTab;
+  setActiveTab: (tab: NavigationTab) => void;
   apiConfig: ApiConfig;
   onOpenConfig: () => void;
   modelsCount: number;
@@ -49,7 +51,22 @@ export const Header: React.FC<HeaderProps> = ({
                 : 'text-slate-400 hover:text-slate-200'
             }`}
           >
-            Benchmark Laboratuvarı (Döküman & Kod)
+            Benchmark Laboratuvarı
+          </button>
+
+          <button
+            onClick={() => setActiveTab('ping')}
+            className={`whitespace-nowrap transition-colors py-1 flex items-center gap-1.5 ${
+              activeTab === 'ping'
+                ? 'text-emerald-400 border-b-2 border-emerald-400 font-semibold'
+                : 'text-slate-400 hover:text-slate-200'
+            }`}
+            title="Tüm modellerin anlık yanıt süreleri (ping) ve saatlik otomatik hız radarı"
+          >
+            <span>Hızlı Ping Radarı</span>
+            <span className="text-[10px] px-1.5 py-0.2 rounded bg-emerald-500/20 text-emerald-300 font-mono font-semibold">
+              ⚡ Hız
+            </span>
           </button>
 
           <button
@@ -60,7 +77,7 @@ export const Header: React.FC<HeaderProps> = ({
                 : 'text-slate-400 hover:text-slate-200'
             }`}
           >
-            Model Rehberi & Tavsiyeler
+            Model Rehberi
           </button>
 
           <button
