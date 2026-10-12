@@ -55,6 +55,12 @@ interface BenchmarkSuiteViewProps {
   onOpenConfig: () => void;
   onUpdateSelectedModels: (modelIds: string[]) => void;
   onUpdateApiConfig?: (newConfig: ApiConfig) => void;
+  onRunningStateChange?: (
+    isRunning: boolean,
+    progressPercent: number,
+    testName: string,
+    modelName: string
+  ) => void;
 }
 
 export const BenchmarkSuiteView: React.FC<BenchmarkSuiteViewProps> = ({
@@ -69,6 +75,7 @@ export const BenchmarkSuiteView: React.FC<BenchmarkSuiteViewProps> = ({
   onOpenConfig,
   onUpdateSelectedModels,
   onUpdateApiConfig,
+  onRunningStateChange,
 }) => {
   // Quick Setup States (Inline for fast setup)
   const [quickBaseUrl, setQuickBaseUrl] = useState(apiConfig.baseUrl || 'https://api.openai.com/v1');
@@ -97,8 +104,15 @@ export const BenchmarkSuiteView: React.FC<BenchmarkSuiteViewProps> = ({
   const [failoverNotification, setFailoverNotification] = useState<string | null>(null);
   const [progressPercent, setProgressPercent] = useState(0);
 
-  // Model evaluations mapped by modelId (computed purely from real test results)
-  const [evaluations, setEvaluations] = useState<Record<string, ModelEvaluationProfile>>({});
+  // Model evaluations mapped by modelId (persisted across tab switches and reloads)
+  const [evaluations, setEvaluations] = useState<Record<string, ModelEvaluationProfile>>(() => {
+    try {
+      const saved = localStorage.getItem('openai_suite_evaluations');
+      if (saved) return JSON.parse(saved);
+    } catch {}
+    return {};
+  });
+
   const [detailedOutputs, setDetailedOutputs] = useState<
     Array<{
       modelId: string;
@@ -114,7 +128,32 @@ export const BenchmarkSuiteView: React.FC<BenchmarkSuiteViewProps> = ({
       errorMessage?: string;
       usedKeyName?: string;
     }>
-  >([]);
+  >(() => {
+    try {
+      const saved = localStorage.getItem('openai_suite_detailed_outputs');
+      if (saved) return JSON.parse(saved);
+    } catch {}
+    return [];
+  });
+
+  // Persist evaluations to localStorage
+  useEffect(() => {
+    try {
+      localStorage.setItem('openai_suite_evaluations', JSON.stringify(evaluations));
+    } catch {}
+  }, [evaluations]);
+
+  // Persist detailedOutputs to localStorage
+  useEffect(() => {
+    try {
+      localStorage.setItem('openai_suite_detailed_outputs', JSON.stringify(detailedOutputs));
+    } catch {}
+  }, [detailedOutputs]);
+
+  // Report running state to parent (Header live badge)
+  useEffect(() => {
+    onRunningStateChange?.(isRunning, progressPercent, currentTestName, currentModelName);
+  }, [isRunning, progressPercent, currentTestName, currentModelName, onRunningStateChange]);
 
   const [expandedOutputId, setExpandedOutputId] = useState<string | null>(null);
 

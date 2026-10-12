@@ -87,6 +87,19 @@ export default function App() {
   const [scanError, setScanError] = useState<string | null>(null);
   const [selectedModelForTest, setSelectedModelForTest] = useState<string>('');
 
+  // Live running state tracking for persistent background execution feedback
+  const [benchmarkRunningInfo, setBenchmarkRunningInfo] = useState<{
+    isRunning: boolean;
+    progressPercent: number;
+    testName: string;
+    modelName: string;
+  }>({
+    isRunning: false,
+    progressPercent: 0,
+    testName: '',
+    modelName: '',
+  });
+
   // Sync config to localStorage
   useEffect(() => {
     try {
@@ -228,11 +241,12 @@ export default function App() {
         onOpenConfig={() => setIsConfigOpen(true)}
         modelsCount={models.length}
         testCount={records.length}
+        benchmarkRunningInfo={benchmarkRunningInfo}
       />
 
-      {/* Main Viewport Container */}
+      {/* Main Viewport Container (Persistent mounted views - tests never interrupt on tab switch) */}
       <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-6">
-        {activeTab === 'benchmark' && (
+        <div className={activeTab === 'benchmark' ? 'block' : 'hidden'}>
           <BenchmarkSuiteView
             apiConfig={apiConfig}
             scannedModels={models}
@@ -248,10 +262,18 @@ export default function App() {
               setApiConfig(newCfg);
               handleScanModelsWithConfig(newCfg);
             }}
+            onRunningStateChange={(isRunning, progressPercent, testName, modelName) => {
+              setBenchmarkRunningInfo({
+                isRunning,
+                progressPercent,
+                testName,
+                modelName,
+              });
+            }}
           />
-        )}
+        </div>
 
-        {activeTab === 'guide' && (
+        <div className={activeTab === 'guide' ? 'block' : 'hidden'}>
           <ModelGuideView
             scannedModels={models}
             records={records}
@@ -265,9 +287,9 @@ export default function App() {
             isScanning={isScanning}
             onOpenConfig={() => setIsConfigOpen(true)}
           />
-        )}
+        </div>
 
-        {activeTab === 'endpoints' && (
+        <div className={activeTab === 'endpoints' ? 'block' : 'hidden'}>
           <EndpointTester
             apiConfig={apiConfig}
             models={models}
@@ -275,14 +297,14 @@ export default function App() {
             onBenchmarkCompleted={handleBenchmarkCompleted}
             onTriggerScan={handleScanModels}
           />
-        )}
+        </div>
 
-        {activeTab === 'reports' && (
+        <div className={activeTab === 'reports' ? 'block' : 'hidden'}>
           <ReportingDashboard
             records={records}
             onClearHistory={handleClearHistory}
           />
-        )}
+        </div>
       </main>
 
       {/* Footer */}

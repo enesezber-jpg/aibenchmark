@@ -9,6 +9,12 @@ interface HeaderProps {
   onOpenConfig: () => void;
   modelsCount: number;
   testCount: number;
+  benchmarkRunningInfo?: {
+    isRunning: boolean;
+    progressPercent: number;
+    testName: string;
+    modelName: string;
+  };
 }
 
 export const Header: React.FC<HeaderProps> = ({
@@ -18,6 +24,7 @@ export const Header: React.FC<HeaderProps> = ({
   onOpenConfig,
   modelsCount,
   testCount,
+  benchmarkRunningInfo,
 }) => {
   return (
     <header className="sticky top-0 z-40 w-full border-b border-slate-800 bg-slate-950/90 backdrop-blur-md">
@@ -81,6 +88,18 @@ export const Header: React.FC<HeaderProps> = ({
 
         {/* Zone 3: Primary Action / API Config Trigger */}
         <div className="flex items-center gap-3 shrink-0">
+          {benchmarkRunningInfo?.isRunning && (
+            <button
+              type="button"
+              onClick={() => setActiveTab('benchmark')}
+              className="flex items-center gap-2 px-2.5 py-1 text-xs font-semibold bg-emerald-950/80 text-emerald-300 border border-emerald-500/50 rounded-lg animate-pulse hover:bg-emerald-900/60 transition-colors shadow-sm"
+              title={`Benchmark testi arka planda kesintisiz çalışıyor (%${benchmarkRunningInfo.progressPercent}). Tıklayarak laboratuvara dönün.`}
+            >
+              <span className="w-2 h-2 rounded-full bg-emerald-400 animate-ping shrink-0" />
+              <span className="font-mono">Test Sürüyor (%{benchmarkRunningInfo.progressPercent})</span>
+            </button>
+          )}
+
           <div className="hidden sm:flex items-center gap-2 text-xs text-slate-400">
             {apiConfig.apiKeysPool && apiConfig.apiKeysPool.length > 1 ? (
               <span className="flex items-center gap-1 font-mono text-emerald-400 bg-emerald-950/60 px-2 py-0.5 rounded border border-emerald-500/30">
