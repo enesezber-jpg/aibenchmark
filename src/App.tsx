@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import type { ApiConfig, BenchmarkRecord, ModelItem } from './types';
 import { Header } from './components/Header';
 import { ConfigModal } from './components/ConfigModal';
@@ -26,75 +26,6 @@ const DEFAULT_CONFIG: ApiConfig = {
   customHeaders: {},
   selectedProvider: 'openai',
 };
-
-// Initial seed benchmark records for immediate graphical preview
-const INITIAL_SEED_RECORDS: BenchmarkRecord[] = [
-  {
-    id: 'rec_seed_1',
-    timestamp: Date.now() - 1000 * 60 * 18,
-    modelId: 'gpt-4o',
-    endpoint: '/chat/completions',
-    category: 'document_analysis',
-    categoryScore: 94,
-    status: 'success',
-    httpStatus: 200,
-    latencyMs: 720,
-    ttftMs: 310,
-    promptTokens: 48,
-    completionTokens: 210,
-    totalTokens: 258,
-    tokensPerSecond: 82.4,
-    requestPayload: { model: 'gpt-4o', max_tokens: 300 },
-    responsePayload: { choices: [{ message: { content: 'SLA Madde 4 analizi: %98.40 için %25 hizmet kredisi iade edilir...' } }] },
-    outputPreview: 'SLA Madde 4 analizi: %98.40 için %25 hizmet kredisi iade edilir...',
-  },
-  {
-    id: 'rec_seed_2',
-    timestamp: Date.now() - 1000 * 60 * 15,
-    modelId: 'gpt-4o-mini',
-    endpoint: '/chat/completions',
-    category: 'coding',
-    categoryScore: 91,
-    status: 'success',
-    httpStatus: 200,
-    latencyMs: 380,
-    ttftMs: 160,
-    promptTokens: 48,
-    completionTokens: 195,
-    totalTokens: 243,
-    tokensPerSecond: 135.2,
-    requestPayload: { model: 'gpt-4o-mini', max_tokens: 300 },
-    responsePayload: { choices: [{ message: { content: 'class ConcurrentTaskQueue<T> { ... } Concurrency ve retry başarıyla yazıldı.' } }] },
-    outputPreview: 'class ConcurrentTaskQueue<T> { ... } Concurrency ve retry başarıyla yazıldı.',
-  },
-  {
-    id: 'rec_seed_3',
-    timestamp: Date.now() - 1000 * 60 * 10,
-    modelId: 'text-embedding-3-small',
-    endpoint: '/embeddings',
-    status: 'success',
-    httpStatus: 200,
-    latencyMs: 145,
-    promptTokens: 32,
-    totalTokens: 32,
-    requestPayload: { model: 'text-embedding-3-small' },
-    responsePayload: { data: [{ embedding: [0.012, -0.045, 0.082] }] },
-    embeddingsDim: 1536,
-    outputPreview: '2 vektör üretildi. Boyut: 1536',
-  },
-  {
-    id: 'rec_seed_4',
-    timestamp: Date.now() - 1000 * 60 * 5,
-    modelId: 'tts-1',
-    endpoint: '/audio/speech',
-    status: 'success',
-    httpStatus: 200,
-    latencyMs: 510,
-    requestPayload: { model: 'tts-1', voice: 'alloy' },
-    responsePayload: { byteLength: 14200 },
-    outputPreview: 'Ses başarıyla oluşturuldu (14200 bayt, audio/mpeg)',
-  },
-];
 
 export default function App() {
   const [activeTab, setActiveTab] = useState<'benchmark' | 'guide' | 'endpoints' | 'reports'>('benchmark');
@@ -125,7 +56,7 @@ export default function App() {
     return DEFAULT_CONFIG;
   });
 
-  // Load cached models or empty
+  // Load cached models or empty (NO FAKE HARDCODED MODELS)
   const [models, setModels] = useState<ModelItem[]>(() => {
     try {
       const saved = localStorage.getItem('openai_suite_models');
@@ -134,21 +65,27 @@ export default function App() {
     return [];
   });
 
-  // Selected models for comparison
-  const [selectedModelIds, setSelectedModelIds] = useState<string[]>(['gpt-4o', 'gpt-4o-mini']);
+  // Selected models for comparison (only from real scanned models)
+  const [selectedModelIds, setSelectedModelIds] = useState<string[]>(() => {
+    try {
+      const saved = localStorage.getItem('openai_suite_selected_models');
+      if (saved) return JSON.parse(saved);
+    } catch {}
+    return [];
+  });
 
-  // Benchmark records history
+  // Real benchmark records history (NO DEMO DATA)
   const [records, setRecords] = useState<BenchmarkRecord[]>(() => {
     try {
       const saved = localStorage.getItem('openai_suite_benchmarks');
       if (saved) return JSON.parse(saved);
     } catch {}
-    return INITIAL_SEED_RECORDS;
+    return [];
   });
 
   const [isScanning, setIsScanning] = useState(false);
   const [scanError, setScanError] = useState<string | null>(null);
-  const [selectedModelForTest, setSelectedModelForTest] = useState<string>('gpt-4o-mini');
+  const [selectedModelForTest, setSelectedModelForTest] = useState<string>('');
 
   // Sync config to localStorage
   useEffect(() => {
@@ -164,6 +101,13 @@ export default function App() {
     } catch {}
   }, [models]);
 
+  // Sync selected models
+  useEffect(() => {
+    try {
+      localStorage.setItem('openai_suite_selected_models', JSON.stringify(selectedModelIds));
+    } catch {}
+  }, [selectedModelIds]);
+
   // Sync benchmark records
   useEffect(() => {
     try {
@@ -171,27 +115,53 @@ export default function App() {
     } catch {}
   }, [records]);
 
-  // Model Scan handler
-  const handleScanModels = async () => {
+  // Model Scan handler with specific config
+  const handleScanModelsWithConfig = useCallback(async (configToUse: ApiConfig) => {
     setIsScanning(true);
     setScanError(null);
     try {
-      const fetchedModels = await scanModels(apiConfig);
+      const fetchedModels = await scanModels(configToUse);
       setModels(fetchedModels);
 
-      // Pre-select first 2 chat models if available
-      const chatModels = fetchedModels.filter((m) => m.detectedType === 'chat');
-      if (chatModels.length >= 2) {
-        setSelectedModelIds(chatModels.slice(0, 3).map((m) => m.id));
-      } else if (fetchedModels.length > 0) {
-        setSelectedModelIds(fetchedModels.slice(0, 2).map((m) => m.id));
+      // Select real chat models from the scanned list
+      const chatModels = fetchedModels.filter(
+        (m) => m.detectedType === 'chat' || m.detectedType === 'general'
+      );
+
+      const realToSelect =
+        chatModels.length > 0
+          ? chatModels.slice(0, 2).map((m) => m.id)
+          : fetchedModels.slice(0, 2).map((m) => m.id);
+
+      setSelectedModelIds(realToSelect);
+      if (fetchedModels.length > 0) {
+        setSelectedModelForTest(fetchedModels[0].id);
       }
     } catch (err: any) {
       setScanError(err.message || 'Model taraması sırasında bir hata oluştu.');
     } finally {
       setIsScanning(false);
     }
-  };
+  }, []);
+
+  const handleScanModels = useCallback(() => {
+    handleScanModelsWithConfig(apiConfig);
+  }, [apiConfig, handleScanModelsWithConfig]);
+
+  // Automatically scan models only if an API key is provided OR it's a local endpoint without keys
+  useEffect(() => {
+    const hasKey =
+      (apiConfig.apiKey && apiConfig.apiKey.trim().length > 0) ||
+      (apiConfig.apiKeysPool && apiConfig.apiKeysPool.some((k) => k.isEnabled && k.key.trim().length > 0));
+    const isLocal =
+      apiConfig.baseUrl.includes('localhost') ||
+      apiConfig.baseUrl.includes('127.0.0.1') ||
+      apiConfig.baseUrl.includes('0.0.0.0');
+
+    if ((hasKey || isLocal) && models.length === 0 && !isScanning && !scanError) {
+      handleScanModels();
+    }
+  }, [apiConfig, models.length, handleScanModels, isScanning, scanError]);
 
   // Test Connection Probe across candidate pool
   const handleTestConnection = async (testConfig: ApiConfig) => {
@@ -239,34 +209,6 @@ export default function App() {
     }
   };
 
-  const handleToggleSelectModel = (modelId: string) => {
-    setSelectedModelIds((prev) => {
-      if (prev.includes(modelId)) {
-        return prev.filter((id) => id !== modelId);
-      } else {
-        if (prev.length >= 4) {
-          alert('Karşılaştırma için aynı anda en fazla 4 model seçebilirsiniz.');
-          return prev;
-        }
-        return [...prev, modelId];
-      }
-    });
-  };
-
-  const handleSelectAllVisible = (modelIds: string[]) => {
-    const toSelect = modelIds.slice(0, 4);
-    setSelectedModelIds(toSelect);
-  };
-
-  const handleClearSelection = () => {
-    setSelectedModelIds([]);
-  };
-
-  const handleQuickTest = (modelId: string) => {
-    setSelectedModelForTest(modelId);
-    setActiveTab('endpoints');
-  };
-
   const handleBenchmarkCompleted = (record: BenchmarkRecord) => {
     setRecords((prev) => [record, ...prev]);
   };
@@ -297,18 +239,31 @@ export default function App() {
             selectedModelIds={selectedModelIds}
             onBenchmarkCompleted={handleBenchmarkCompleted}
             onGoToModelGuide={() => setActiveTab('guide')}
+            onTriggerScan={handleScanModels}
+            isScanning={isScanning}
+            scanError={scanError}
+            onOpenConfig={() => setIsConfigOpen(true)}
+            onUpdateSelectedModels={setSelectedModelIds}
+            onUpdateApiConfig={(newCfg) => {
+              setApiConfig(newCfg);
+              handleScanModelsWithConfig(newCfg);
+            }}
           />
         )}
 
         {activeTab === 'guide' && (
           <ModelGuideView
             scannedModels={models}
+            records={records}
             onSelectModelForBenchmark={(modelId) => {
               if (!selectedModelIds.includes(modelId)) {
                 setSelectedModelIds([modelId, ...selectedModelIds.slice(0, 2)]);
               }
             }}
             onGoToBenchmark={() => setActiveTab('benchmark')}
+            onTriggerScan={handleScanModels}
+            isScanning={isScanning}
+            onOpenConfig={() => setIsConfigOpen(true)}
           />
         )}
 
@@ -316,8 +271,9 @@ export default function App() {
           <EndpointTester
             apiConfig={apiConfig}
             models={models}
-            defaultSelectedModel={selectedModelForTest}
+            defaultSelectedModel={selectedModelForTest || models[0]?.id || ''}
             onBenchmarkCompleted={handleBenchmarkCompleted}
+            onTriggerScan={handleScanModels}
           />
         )}
 
@@ -335,7 +291,7 @@ export default function App() {
           <div className="flex items-center gap-2">
             <span>Generic OpenAI Model Benchmark Suite</span>
             <span aria-hidden="true">·</span>
-            <span className="font-mono text-slate-400">10 Desteklenen Uç Nokta</span>
+            <span className="font-mono text-slate-400">Gerçek API & Gerçek Modeller</span>
           </div>
           <div className="flex items-center gap-3 font-mono text-[11px] text-slate-400">
             <span>/models</span>
@@ -356,7 +312,10 @@ export default function App() {
         isOpen={isConfigOpen}
         onClose={() => setIsConfigOpen(false)}
         config={apiConfig}
-        onSave={(newCfg) => setApiConfig(newCfg)}
+        onSave={(newCfg) => {
+          setApiConfig(newCfg);
+          handleScanModelsWithConfig(newCfg);
+        }}
         onTestConnection={handleTestConnection}
       />
     </div>

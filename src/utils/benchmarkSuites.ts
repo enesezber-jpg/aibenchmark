@@ -400,64 +400,123 @@ export function evaluateTestOutput(
   tokensPerSec?: number
 ): { score: number; critique: string; matchedKeywords: string[] } {
   if (!rawOutput || rawOutput.trim().length === 0) {
-    return { score: 0, critique: 'Model hiçbir yanıt üretmedi (Boş yanıt).', matchedKeywords: [] };
+    return { score: 0, critique: 'Model hiçbir yanıt üretmedi (Boş yanıt veya API hatası).', matchedKeywords: [] };
   }
 
-  let score = 50; // baseline for returning a response
+  let score = 45; // Temel yanıt üretme taban puanı
   const matchedKeywords: string[] = [];
+  const lowerOutput = rawOutput.toLowerCase();
 
-  // Check expected keywords
-  if (testDef.expectedKeywords && testDef.expectedKeywords.length > 0) {
-    const totalKeywords = testDef.expectedKeywords.length;
-    let found = 0;
-    testDef.expectedKeywords.forEach((kw) => {
-      if (rawOutput.toLowerCase().includes(kw.toLowerCase())) {
-        found++;
-        matchedKeywords.push(kw);
-      }
-    });
+  // Teste özel zenginleştirilmiş anahtar kontrol
+  if (testDef.id === 'doc_analysis_sla') {
+    // 1. Soru: %25 veya yüzde 25
+    const hasRate = lowerOutput.includes('%25') || lowerOutput.includes('yüzde 25') || lowerOutput.includes('25%');
+    if (hasRate) { score += 15; matchedKeywords.push('%25 Kredi'); }
 
-    const kwScore = (found / totalKeywords) * 35;
-    score += kwScore;
-  } else {
-    score += 25;
-  }
+    // 2. Soru: DNS veya DDoS istisnası
+    const hasExemption = lowerOutput.includes('ddos') || lowerOutput.includes('dns');
+    if (hasExemption) { score += 10; matchedKeywords.push('DDoS/DNS İstisnası'); }
 
-  // Check JSON requirement if applicable
-  if (testDef.requiresJson) {
+    // 3. Soru: 46 gün / 45 gün imha, 180 gün adli süre
+    const hasDestruction = lowerOutput.includes('46') || lowerOutput.includes('45');
+    const hasInvestigation = lowerOutput.includes('180');
+    if (hasDestruction && hasInvestigation) { score += 15; matchedKeywords.push('46/180 Gün Süre'); }
+    else if (hasDestruction || hasInvestigation) { score += 8; matchedKeywords.push('Kısmi Süre'); }
+
+    // 4. Soru: 3 katı veya üç katı cezai şart
+    const hasPenalty = lowerOutput.includes('3 kat') || lowerOutput.includes('üç kat') || lowerOutput.includes('3x');
+    if (hasPenalty) { score += 15; matchedKeywords.push('3 Katı Tazminat'); }
+  } else if (testDef.id === 'coding_concurrency') {
+    // ConcurrentTaskQueue, Class
+    const hasClass = lowerOutput.includes('class') || lowerOutput.includes('taskqueue') || lowerOutput.includes('queue');
+    if (hasClass) { score += 10; matchedKeywords.push('Sınıf Mimarisi'); }
+
+    // Concurrency kontrolü
+    const hasConcurrency = lowerOutput.includes('concurrency') || lowerOutput.includes('active') || lowerOutput.includes('running');
+    if (hasConcurrency) { score += 12; matchedKeywords.push('Eşzamanlılık Limiti'); }
+
+    // Retry / Exponential Backoff
+    const hasRetry = lowerOutput.includes('retry') || lowerOutput.includes('backoff') || lowerOutput.includes('pow') || lowerOutput.includes('maxretries');
+    if (hasRetry) { score += 15; matchedKeywords.push('Exponential Backoff Tekrarı'); }
+
+    // Promise / Generic / Resolve / Reject
+    const hasPromise = lowerOutput.includes('promise') && (lowerOutput.includes('resolve') || lowerOutput.includes('reject'));
+    if (hasPromise) { score += 13; matchedKeywords.push('Promise & Tip Güvenliği'); }
+  } else if (testDef.id === 'json_schema_extraction') {
+    // Saf JSON parse kontrolü
+    const cleanJson = rawOutput.replace(/```json/g, '').replace(/```/g, '').trim();
+    let parsed: any = null;
     try {
-      // Clean possible backticks
-      const cleanJson = rawOutput.replace(/```json/g, '').replace(/```/g, '').trim();
-      JSON.parse(cleanJson);
-      score += 15;
+      parsed = JSON.parse(cleanJson);
+      score += 25;
+      matchedKeywords.push('Geçerli JSON Formatı');
     } catch {
       score -= 25;
     }
+
+    if (parsed && typeof parsed === 'object') {
+      if (parsed.full_name) { score += 7; matchedKeywords.push('full_name'); }
+      if (parsed.experience_years !== undefined) { score += 7; matchedKeywords.push('experience_years'); }
+      if (Array.isArray(parsed.skills)) { score += 8; matchedKeywords.push('skills dizisi'); }
+      if (parsed.remote_available !== undefined) { score += 8; matchedKeywords.push('remote_available'); }
+    }
+
+    // Markdown içermeme şartı
+    if (rawOutput.includes('```')) {
+      score -= 10; // Saf JSON istenmişti, markdown koymuş
+    }
+  } else if (testDef.id === 'reasoning_math') {
+    // 7000 istek, maliyet optimizasyonu
+    const has7000 = lowerOutput.includes('7000') || lowerOutput.includes('istek');
+    const hasCost = lowerOutput.includes('maliyet') || lowerOutput.includes('dolar') || lowerOutput.includes('$');
+    const hasCapacity = lowerOutput.includes('kapasite') || lowerOutput.includes('saat');
+
+    if (has7000) { score += 15; matchedKeywords.push('7000 İstek Analizi'); }
+    if (hasCost) { score += 15; matchedKeywords.push('Maliyet Hesaplaması'); }
+    if (hasCapacity) { score += 15; matchedKeywords.push('Kapasite Çıkarımı'); }
+  } else if (testDef.id === 'turkish_language_fidelity') {
+    const hasDarboğaz = lowerOutput.includes('darboğaz') || lowerOutput.includes('bottleneck');
+    const hasOlayGüdümlü = lowerOutput.includes('olay') || lowerOutput.includes('asenkron') || lowerOutput.includes('mikroservis');
+    const hasDeyim = lowerOutput.includes('iğne') || lowerOutput.includes('tere');
+
+    if (hasDarboğaz) { score += 15; matchedKeywords.push('Teknik Terim Türkçeleştirme'); }
+    if (hasOlayGüdümlü) { score += 15; matchedKeywords.push('Akıcı Cümle Yapısı'); }
+    if (hasDeyim) { score += 15; matchedKeywords.push('Yazılım Deyim Analojisi'); }
+  } else {
+    // Genel anahtar kontrolü
+    if (testDef.expectedKeywords && testDef.expectedKeywords.length > 0) {
+      let found = 0;
+      testDef.expectedKeywords.forEach((kw) => {
+        if (lowerOutput.includes(kw.toLowerCase())) {
+          found++;
+          matchedKeywords.push(kw);
+        }
+      });
+      score += (found / testDef.expectedKeywords.length) * 35;
+    } else {
+      score += 25;
+    }
   }
 
-  // Length and completeness check
-  if (rawOutput.length > 150) {
-    score += 10;
-  }
-
-  // Speed bonus / penalty
+  // Hız ve gecikme etkisi
   if (tokensPerSec && tokensPerSec > 60) {
     score += 5;
   }
-  if (latencyMs > 5000) {
+  if (latencyMs < 1200) {
+    score += 5;
+  } else if (latencyMs > 6000) {
     score -= 5;
   }
 
   const finalScore = Math.max(15, Math.min(100, Math.round(score)));
 
-  // Generate actionable critique in Turkish
   let critique = '';
   if (finalScore >= 85) {
-    critique = `Mükemmel Başarı (%${finalScore}): İstenen tüm anahtar verileri ve kurguyu eksiksiz sundu. ${testDef.categoryName} için son derece güvenilir.`;
+    critique = `Mükemmel Başarı (%${finalScore}): Model beklenen tüm kritik verileri ve yapıları (${matchedKeywords.join(', ') || 'tüm kriterler'}) eksiksiz sundu. Bu alanda üstün performansa sahiptir.`;
   } else if (finalScore >= 65) {
-    critique = `İyi Düzey (%${finalScore}): Ana fikri kavradı ancak bazı ince detayları veya format sınırlarını tam yakalayamadı.`;
+    critique = `İyi Düzey (%${finalScore}): Temel gereksinimler (${matchedKeywords.join(', ') || 'kısmi veriler'}) karşılandı, ancak bazı ince ayrıntılar veya kısıtlar tam eksiksiz yakalanamadı.`;
   } else {
-    critique = `Geliştirilmeli (%${finalScore}): Beklenen kritik anahtar kavramların bir kısmı eksik kaldı. Bu görev için daha güçlü bir model seçilmesi önerilir.`;
+    critique = `Geliştirilmeli (%${finalScore}): Kritik kriterlerin bir kısmı (${matchedKeywords.length > 0 ? matchedKeywords.join(', ') + ' yakalandı, gerisi eksik' : 'kriterler eksik'}) karşılanamadı. Bu görev türü için daha yetkin bir model tercih edilmesi tavsiye edilir.`;
   }
 
   return { score: finalScore, critique, matchedKeywords };

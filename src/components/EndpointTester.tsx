@@ -26,6 +26,7 @@ interface EndpointTesterProps {
   models: ModelItem[];
   defaultSelectedModel?: string;
   onBenchmarkCompleted: (record: BenchmarkRecord) => void;
+  onTriggerScan?: () => void;
 }
 
 export const EndpointTester: React.FC<EndpointTesterProps> = ({
@@ -33,11 +34,12 @@ export const EndpointTester: React.FC<EndpointTesterProps> = ({
   models,
   defaultSelectedModel,
   onBenchmarkCompleted,
+  onTriggerScan,
 }) => {
   const [selectedEndpoint, setSelectedEndpoint] = useState<EndpointType>('/chat/completions');
   const [editorMode, setEditorMode] = useState<'form' | 'json'>('form');
   const [selectedModel, setSelectedModel] = useState<string>(
-    defaultSelectedModel || 'gpt-4o-mini'
+    defaultSelectedModel || models[0]?.id || ''
   );
   const [jsonPayload, setJsonPayload] = useState<string>('');
   const [isRunning, setIsRunning] = useState(false);
@@ -93,12 +95,14 @@ export const EndpointTester: React.FC<EndpointTesterProps> = ({
     'Model kuantizasyonu (INT8/FP4) ve KV-cache optimizasyonları gecikmeyi önemli ölçüde azaltır.\nVeritabanı indeksleme algoritmaları B-Tree ve Hash temelli yapılandırılır.\nSpeculative decoding ve vLLM PagedAttention yüksek verimlilik sağlar.\nCSS animasyonları GPU hızlandırması ile 60 fps akıcılık sunar.'
   );
 
-  // Update selected model when prop changes
+  // Update selected model when prop changes or models are scanned
   useEffect(() => {
     if (defaultSelectedModel) {
       setSelectedModel(defaultSelectedModel);
+    } else if (models.length > 0 && !selectedModel) {
+      setSelectedModel(models[0].id);
     }
-  }, [defaultSelectedModel]);
+  }, [defaultSelectedModel, models, selectedModel]);
 
   // Sync JSON payload on endpoint or form change
   useEffect(() => {
